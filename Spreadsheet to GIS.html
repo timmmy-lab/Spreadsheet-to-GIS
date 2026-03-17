@@ -240,6 +240,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);heig
   <button class="btn amber" id="btn-clear-lasso" style="display:none">↩ Clear Lasso</button>
   <div class="tb-right">
     <div id="status-pill" class="status-pill">READY</div>
+    <button class="btn" id="btn-revgeo" style="display:none" title="Look up street address for every point">📍 Lookup Addresses</button>
     <button class="btn grn" id="btn-export" style="display:none">⬇ Export</button>
     <button class="btn red" id="btn-clear"  style="display:none">✕ Clear</button>
   </div>
@@ -403,6 +404,30 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);heig
         <span class="exp-icon">📄</span>
         <div><div class="exp-title">CSV — <span class="filt-lbl"></span></div>
         <div class="exp-sub">All columns including coordinates</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- REVERSE GEOCODE CONFIRM MODAL -->
+<div class="modal-backdrop" id="revgeo-modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title">📍 LOOKUP ADDRESSES</span>
+      <button class="modal-x" id="revgeo-x">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:14px;">
+        Reverse geocode all <strong id="revgeo-count">0</strong> points using
+        <strong>Nominatim (OpenStreetMap)</strong> to look up the nearest street address
+        for each coordinate.<br><br>
+        Results are added as a <strong>_address</strong> column to every record,
+        shown in the info panel and map popups.<br><br>
+        ⚠ Rate limited to 1 request/second — large datasets will take time.
+      </p>
+      <div class="geo-actions">
+        <button class="btn" id="revgeo-cancel">Cancel</button>
+        <button class="btn primary" id="revgeo-start">▶ Start Lookup</button>
       </div>
     </div>
   </div>
@@ -688,6 +713,7 @@ function finalise(loaded, skipped) {
     $('empty-state').style.display   = 'none';
     $('btn-export').style.display    = '';
     $('btn-clear').style.display     = '';
+    $('btn-revgeo').style.display    = '';
     $('btn-extent').disabled         = false;
     $('btn-measure').disabled        = false;
     $('btn-lasso').disabled          = false;
@@ -1133,6 +1159,7 @@ function clearAll(resetView) {
     $('empty-state').style.display = '';
     $('btn-export').style.display = 'none';
     $('btn-clear').style.display  = 'none';
+    $('btn-revgeo').style.display = 'none';
     $('btn-clear-lasso').style.display = 'none';
     $('btn-extent').disabled   = true;
     $('btn-zoom-sel').disabled = true;
@@ -1443,6 +1470,126 @@ async function exportSHP(features) {
     triggerDl(blob, 'export_' + n + 'pts.zip');
     setStatus('SHP EXPORTED · ' + n + ' POINTS');
   } catch(e) { showError('exportSHP', e); }
+}
+
+// ── REVERSE GEOCODING ──────────────────────────────────────
+$('btn-revgeo').addEventListener('click', () => {
+  const mappable = allFeatures.filter(f => f.lat !== null);
+  $('revgeo-count').textContent = mappable.length;
+  $('revgeo-modal').classList.add('on');
+});
+$('revgeo-x').addEventListener('click',      () => $('revgeo-modal').classList.remove('on'));
+$('revgeo-cancel').addEventListener('click', () => $('revgeo-modal').classList.remove('on'));
+$('revgeo-start').addEventListener('click',  startReverseGeocode);
+
+async function startReverseGeocode() {
+  $('revgeo-modal').classList.remove('on');
+
+  const targets = allFeatures.filter(f => f.lat !== null);
+  const total   = targets.length;
+  let ok = 0, fail = 0;
+  geoCancelled  = false;
+
+  // Reuse the progress modal
+  const fill  = $('prog-fill');
+  const pCnt  = $('prog-count');
+  const pPct  = $('prog-pct');
+  const pOk   = $('prog-ok');
+  const pFail = $('prog-fail');
+  const pCur  = $('prog-cur');
+
+  fill.style.width  = '0%';
+  pCnt.textContent  = '0 / ' + total;
+  pPct.textContent  = '0%';
+  pOk.textContent   = '✓ 0 found';
+  pFail.textContent = '✗ 0 failed';
+  pCur.textContent  = 'Starting reverse lookup…';
+  // Update modal title for context
+  const progTitle = document.querySelector('#prog-modal .prog-title');
+  const progSub   = document.querySelector('#prog-modal .prog-sub');
+  const origTitle = progTitle.textContent;
+  const origSub   = progSub.textContent;
+  progTitle.textContent = 'REVERSE GEOCODING IN PROGRESS';
+  progSub.textContent   = 'Nominatim · OpenStreetMap · 1 req/sec';
+  $('prog-modal').classList.add('on');
+
+  for (let i = 0; i < targets.length; i++) {
+    if (geoCancelled) break;
+
+    const f   = targets[i];
+    const pct = Math.round(((i) / total) * 100);
+    fill.style.width  = pct + '%';
+    pCnt.textContent  = i + ' / ' + total;
+    pPct.textContent  = pct + '%';
+    pCur.textContent  = '⏳ ' + f.lat.toFixed(5) + ', ' + f.lon.toFixed(5);
+
+    let address = '';
+    try {
+      const url  = 'https://nominatim.openstreetmap.org/reverse?lat=' + f.lat +
+                   '&lon=' + f.lon + '&format=json&zoom=18&addressdetails=1';
+      const resp = await fetch(url, {
+        headers: { 'Accept-Language': 'en', 'User-Agent': 'GIS-Field-Viewer/2.0' }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.display_name) {
+          // Build a clean, structured address from components
+          const a = data.address || {};
+          const parts = [
+            a.house_number && a.road ? a.house_number + ' ' + a.road : (a.road || a.pedestrian || a.footway || ''),
+            a.suburb || a.neighbourhood || a.hamlet || '',
+            a.city || a.town || a.village || a.county || '',
+            a.state || a.state_district || '',
+            a.postcode || '',
+            a.country || ''
+          ].filter(Boolean);
+          address = parts.join(', ');
+          if (!address) address = data.display_name; // fallback to full string
+        }
+      }
+    } catch(e) { console.warn('Reverse geocode error:', e); }
+
+    // Inject address into feature data
+    if (address) {
+      ok++;
+      f.data['_address'] = address;
+      pCur.textContent = '✓ ' + address.substring(0, 80);
+    } else {
+      fail++;
+      f.data['_address'] = '';
+      pCur.textContent = '✗ No address found for ' + f.lat.toFixed(5) + ', ' + f.lon.toFixed(5);
+    }
+
+    pOk.textContent   = '✓ ' + ok + ' found';
+    pFail.textContent = '✗ ' + fail + ' failed';
+
+    await sleep(1100);
+  }
+
+  // Final progress update
+  fill.style.width  = '100%';
+  pCnt.textContent  = total + ' / ' + total;
+  pPct.textContent  = '100%';
+
+  $('prog-modal').classList.remove('on');
+
+  // Restore modal titles for future geocode runs
+  progTitle.textContent = origTitle;
+  progSub.textContent   = origSub;
+
+  // Hide the lookup button — addresses are now embedded
+  $('btn-revgeo').style.display = 'none';
+
+  // Re-render everything with the new _address column
+  populateStyleDropdowns();
+  renderMarkers();
+  renderList(allFeatures);
+  buildStats();
+
+  const msg = geoCancelled
+    ? 'LOOKUP CANCELLED · ' + ok + ' found · ' + fail + ' failed'
+    : 'ADDRESS LOOKUP COMPLETE · ' + ok + ' found' + (fail ? ' · ' + fail + ' not found' : '');
+  setStatus(msg, fail > 0 ? 'warn' : '');
 }
 
 // ── GLOBAL ERROR HANDLERS ──────────────────────────────────
