@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GIS Field Map Viewer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;600;700&display=swap');
+
+:root{
+  --bg:#0d1117; --panel:#161b22; --border:#30363d;
+  --accent:#00d4aa; --accent2:#f7c948; --text:#e6edf3;
+  --muted:#8b949e; --danger:#f85149; --green:#3fb950;
+  --panel-w:370px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+/* TOOLBAR */
+.toolbar{background:var(--panel);border-bottom:1px solid var(--border);padding:0 12px;height:52px;display:flex;align-items:center;gap:7px;flex-shrink:0;z-index:1000;overflow-x:auto;white-space:nowrap;}
+.logo{font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:2px;text-transform:uppercase;flex-shrink:0;margin-right:2px;}
+.logo span{color:var(--accent2);}
+.tb-sep{width:1px;height:26px;background:var(--border);flex-shrink:0;margin:0 3px;}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text);font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0;line-height:1;}
+.btn:hover{background:rgba(255,255,255,.06);border-color:var(--accent);color:var(--accent);}
+.btn:disabled{opacity:.3;pointer-events:none;}
+.btn.primary{background:var(--accent);color:#0d1117;border-color:var(--accent);}
+.btn.primary:hover{background:#00b894;}
+.btn.tool-active{background:rgba(0,212,170,.15);border-color:var(--accent);color:var(--accent);}
+.btn.lasso-active{background:rgba(247,201,72,.15);border-color:var(--accent2);color:var(--accent2);}
+.btn.amber{border-color:var(--accent2);color:var(--accent2);}
+.btn.amber:hover{background:rgba(247,201,72,.1);}
+.btn.grn{border-color:var(--green);color:var(--green);}
+.btn.grn:hover{background:rgba(63,185,80,.1);}
+.btn.red{border-color:var(--danger);color:var(--danger);}
+.btn.red:hover{background:rgba(248,81,73,.1);}
+#file-input{display:none;}
+.tb-hint{font-size:11px;color:var(--muted);flex-shrink:0;}
+.tb-right{margin-left:auto;display:flex;align-items:center;gap:7px;flex-shrink:0;}
+.status-pill{font-family:'Share Tech Mono',monospace;font-size:10px;padding:3px 9px;border-radius:20px;background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.3);color:var(--accent);white-space:nowrap;flex-shrink:0;}
+.status-pill.warn{background:rgba(247,201,72,.12);border-color:rgba(247,201,72,.3);color:var(--accent2);}
+.status-pill.err{background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.3);color:var(--danger);}
+
+/* MAIN */
+.main{display:flex;flex:1;overflow:hidden;position:relative;}
+
+/* SIDE PANEL */
+.side-panel{width:var(--panel-w);background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;transition:width .25s;}
+.side-panel.collapsed{width:0;border:none;}
+.panel-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;}
+.ptab{flex:1;padding:9px 4px;text-align:center;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;user-select:none;}
+.ptab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab-pane{display:none;flex:1;overflow:hidden;flex-direction:column;}
+.tab-pane.active{display:flex;}
+
+/* Records pane */
+.pane-head{padding:7px 11px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.pane-title{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:1.5px;}
+.pane-count{font-size:11px;color:var(--muted);}
+.search-wrap{padding:7px 10px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.search-wrap input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 9px;color:var(--text);font-family:'Barlow',sans-serif;font-size:12px;outline:none;}
+.search-wrap input:focus{border-color:var(--accent);}
+.search-wrap input::placeholder{color:var(--muted);}
+.record-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+
+/* Record cards */
+.rec-item{border-bottom:1px solid rgba(48,54,61,.6);cursor:pointer;border-left:3px solid transparent;transition:background .1s;}
+.rec-item:hover{background:rgba(0,212,170,.04);}
+.rec-item.active{background:rgba(0,212,170,.09);border-left-color:var(--accent);}
+.rec-item.lasso-hi{background:rgba(247,201,72,.06);border-left-color:var(--accent2);}
+.rec-item.active.lasso-hi{background:rgba(0,212,170,.09);border-left-color:var(--accent);}
+.rec-item.geo-fail{opacity:.5;cursor:default;}
+.rec-head{display:flex;align-items:center;gap:6px;padding:7px 10px 4px 8px;flex-wrap:wrap;}
+.rec-num{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent);background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.2);border-radius:3px;padding:1px 5px;flex-shrink:0;}
+.rec-num.lasso{color:var(--accent2);background:rgba(247,201,72,.12);border-color:rgba(247,201,72,.25);}
+.rec-title{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+.rec-coords{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted);flex-shrink:0;}
+.geo-badge{font-family:'Share Tech Mono',monospace;font-size:9px;border-radius:3px;padding:1px 5px;flex-shrink:0;}
+.geo-badge.ok{background:rgba(247,201,72,.12);border:1px solid rgba(247,201,72,.25);color:var(--accent2);}
+.geo-badge.fail{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.25);color:var(--danger);}
+.rec-attrs{padding:0 10px 8px 10px;}
+.attr-row{display:grid;grid-template-columns:38% 62%;min-height:19px;border-bottom:1px solid rgba(48,54,61,.25);align-items:start;}
+.attr-row:last-child{border:none;}
+.attr-k{font-size:10px;font-weight:600;color:var(--muted);padding:3px 5px 3px 0;text-transform:uppercase;letter-spacing:.3px;word-break:break-word;line-height:1.3;}
+.attr-v{font-size:11px;color:var(--text);padding:3px 0;word-break:break-word;line-height:1.35;}
+.attr-v.nil{color:var(--muted);font-style:italic;}
+
+/* Style pane */
+.style-sec{padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.style-lbl{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
+.style-sel{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;color:var(--text);font-family:'Barlow',sans-serif;font-size:12px;outline:none;cursor:pointer;}
+.style-sel:focus{border-color:var(--accent);}
+.legend-wrap{flex:1;overflow-y:auto;padding:10px 12px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.leg-item{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;}
+.leg-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;border:1.5px solid rgba(0,0,0,.3);}
+.leg-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Stats pane */
+.stats-wrap{flex:1;overflow-y:auto;padding:10px 12px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.stat-card{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 11px;margin-bottom:9px;}
+.stat-field{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:1px;margin-bottom:7px;text-transform:uppercase;}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;}
+.stat-kv{display:flex;flex-direction:column;}
+.stat-k{font-size:10px;color:var(--muted);text-transform:uppercase;}
+.stat-v{font-size:12px;font-weight:700;margin-top:1px;}
+.stat-uniq{margin-top:7px;border-top:1px solid var(--border);padding-top:6px;}
+.stat-uniq-title{font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;}
+.stat-chips{display:flex;flex-wrap:wrap;gap:3px;}
+.chip{font-size:10px;background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.2);border-radius:3px;padding:1px 6px;color:var(--accent);}
+.chip.more{color:var(--muted);border-color:var(--border);background:transparent;}
+
+/* MAP */
+#map{flex:1;z-index:1;}
+
+/* Panel toggle */
+.panel-toggle{position:absolute;left:var(--panel-w);top:50%;transform:translateY(-50%);z-index:900;background:var(--panel);border:1px solid var(--border);border-left:none;border-radius:0 5px 5px 0;padding:8px 4px;cursor:pointer;color:var(--muted);font-size:11px;transition:left .25s,color .15s;line-height:1;user-select:none;}
+.panel-toggle:hover{color:var(--accent);}
+.panel-toggle.off{left:0;border-left:1px solid var(--border);}
+
+/* Coord bar */
+#coord-bar{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);z-index:800;background:rgba(13,17,23,.85);border:1px solid var(--border);border-radius:5px;padding:3px 11px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);pointer-events:none;white-space:nowrap;}
+
+/* Measure tooltip */
+.m-tip{background:var(--panel)!important;border:1px solid var(--accent)!important;color:var(--accent)!important;font-family:'Share Tech Mono',monospace!important;font-size:11px!important;border-radius:4px!important;padding:2px 7px!important;white-space:nowrap!important;}
+.m-tip::before{display:none!important;}
+
+/* Lasso canvas */
+#lasso-canvas{position:fixed;z-index:700;pointer-events:none;display:none;}
+
+/* Popup */
+.leaflet-popup-content-wrapper{background:var(--panel);border:1px solid var(--accent);border-radius:7px;box-shadow:0 8px 32px rgba(0,0,0,.6);padding:0;overflow:hidden;}
+.leaflet-popup-content{margin:0;width:290px!important;}
+.leaflet-popup-tip-container{display:none;}
+.leaflet-popup-close-button{color:var(--muted)!important;font-size:18px!important;top:7px!important;right:9px!important;}
+.leaflet-popup-close-button:hover{color:var(--danger)!important;}
+.pop-head{background:rgba(0,212,170,.1);border-bottom:1px solid var(--border);padding:8px 13px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:1px;}
+.pop-body{padding:7px 11px 11px;max-height:300px;overflow-y:auto;}
+.pop-row{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;padding:3px 0;border-bottom:1px solid rgba(48,54,61,.35);font-size:11px;}
+.pop-row:last-child{border:none;}
+.pop-k{color:var(--muted);font-weight:600;word-break:break-all;}
+.pop-v{color:var(--text);word-break:break-all;}
+
+/* Drop overlay */
+#drop-overlay{display:none;position:absolute;inset:0;background:rgba(13,17,23,.87);z-index:5000;align-items:center;justify-content:center;flex-direction:column;}
+#drop-overlay.on{display:flex;}
+.drop-box{border:2px dashed var(--accent);border-radius:12px;padding:44px 60px;text-align:center;animation:pulse-b 1.5s ease-in-out infinite;}
+@keyframes pulse-b{0%,100%{border-color:var(--accent);}50%{border-color:var(--accent2);}}
+.drop-icon{font-size:50px;margin-bottom:10px;}
+.drop-title{font-size:20px;font-weight:700;color:var(--accent);}
+.drop-sub{font-size:13px;color:var(--muted);margin-top:5px;}
+
+/* Empty state */
+#empty-state{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;z-index:500;}
+.es-icon{font-size:54px;opacity:.25;}
+.es-title{font-size:18px;font-weight:700;color:var(--muted);margin-top:10px;}
+.es-sub{font-size:13px;color:var(--muted);opacity:.65;margin-top:5px;}
+
+/* Modals shared */
+.modal-backdrop{display:none;position:fixed;inset:0;z-index:9000;align-items:center;justify-content:center;background:rgba(0,0,0,.65);}
+.modal-backdrop.on{display:flex;}
+.modal-box{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.8);}
+.modal-hdr{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.modal-title{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:1.5px;}
+.modal-x{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;}
+.modal-x:hover{color:var(--danger);}
+.modal-body{padding:14px 15px;}
+
+/* Geocode modal */
+#geo-modal .modal-box{width:430px;}
+.geo-desc{font-size:12px;color:var(--muted);margin-bottom:13px;line-height:1.55;}
+.geo-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+.geo-row label{font-size:12px;font-weight:600;white-space:nowrap;width:120px;flex-shrink:0;}
+.geo-sel{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;color:var(--text);font-family:'Barlow',sans-serif;font-size:12px;outline:none;cursor:pointer;}
+.geo-sel:focus{border-color:var(--accent);}
+.geo-note{font-size:11px;color:var(--muted);background:rgba(247,201,72,.07);border:1px solid rgba(247,201,72,.2);border-radius:5px;padding:8px 10px;margin:12px 0;line-height:1.5;}
+.geo-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px;}
+
+/* Progress modal */
+#prog-modal .modal-box{width:420px;}
+.prog-title{font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:1.5px;margin-bottom:3px;}
+.prog-sub{font-size:11px;color:var(--muted);margin-bottom:14px;}
+.prog-track{background:var(--bg);border:1px solid var(--border);border-radius:5px;height:10px;overflow:hidden;margin-bottom:9px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:5px;width:0%;transition:width .3s;}
+.prog-stats{display:flex;justify-content:space-between;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:12px;}
+.prog-cur{font-size:11px;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 9px;font-family:'Share Tech Mono',monospace;min-height:26px;word-break:break-all;line-height:1.4;}
+.prog-cancel{margin-top:13px;width:100%;padding:7px;border-radius:5px;border:1px solid var(--danger);background:transparent;color:var(--danger);font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.prog-cancel:hover{background:rgba(248,81,73,.1);}
+
+/* Export modal */
+#exp-modal .modal-box{width:390px;}
+.exp-scope{font-size:12px;color:var(--muted);background:rgba(0,212,170,.05);border:1px solid rgba(0,212,170,.15);border-radius:5px;padding:7px 10px;margin-bottom:12px;}
+.exp-opt{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-bottom:7px;transition:all .15s;}
+.exp-opt:hover{border-color:var(--accent);background:rgba(0,212,170,.05);}
+.exp-opt:last-child{margin-bottom:0;}
+.exp-icon{font-size:21px;flex-shrink:0;}
+.exp-title{font-size:13px;font-weight:700;}
+.exp-sub{font-size:11px;color:var(--muted);margin-top:1px;}
+
+/* Failed geocodes pane */
+.failed-head{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px;}
+.failed-summary{font-size:11px;color:var(--danger);font-weight:600;}
+.failed-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.fail-item{border-bottom:1px solid rgba(48,54,61,.6);padding:9px 11px;}
+.fail-item-head{display:flex;align-items:center;gap:7px;margin-bottom:6px;}
+.fail-num{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--danger);background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.25);border-radius:3px;padding:1px 5px;flex-shrink:0;}
+.fail-title{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.fail-query-label{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+.fail-query{font-size:11px;color:var(--accent2);background:rgba(247,201,72,.06);border:1px solid rgba(247,201,72,.15);border-radius:4px;padding:4px 8px;font-family:'Share Tech Mono',monospace;word-break:break-all;margin-bottom:6px;}
+.fail-attrs{border-top:1px solid rgba(48,54,61,.4);padding-top:5px;margin-top:2px;}
+.fail-export-bar{padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;background:rgba(248,81,73,.04);}
+
+/* Failed tab badge */
+.ptab .fail-badge{display:inline-block;background:var(--danger);color:#fff;font-size:9px;border-radius:9px;padding:1px 5px;margin-left:4px;font-family:'Barlow',sans-serif;font-weight:700;vertical-align:middle;line-height:1.4;}
+
+/* Leaflet overrides */
+.leaflet-control-layers{background:var(--panel)!important;border:1px solid var(--border)!important;border-radius:5px!important;}
+.leaflet-control-layers label{color:var(--text)!important;font-family:'Barlow',sans-serif;font-size:12px;}
+.leaflet-bar a{background:var(--panel)!important;color:var(--text)!important;border-color:var(--border)!important;}
+.leaflet-bar a:hover{background:var(--bg)!important;color:var(--accent)!important;}
+.leaflet-control-attribution{background:rgba(13,17,23,.75)!important;color:var(--muted)!important;font-size:10px!important;}
+.leaflet-control-attribution a{color:var(--muted)!important;}
+</style>
+</head>
+<body>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <div class="logo">GIS<span>//</span>VIEWER</div>
+  <div class="tb-sep"></div>
+  <button class="btn primary" id="btn-import" onclick="document.getElementById('file-input').click()">⬆ Import</button>
+  <input type="file" id="file-input" accept=".csv,.tsv,.xlsx,.xls">
+  <span class="tb-hint">CSV · TSV · XLSX</span>
+  <div class="tb-sep"></div>
+  <button class="btn" id="btn-extent"   disabled>⊕ Extent</button>
+  <button class="btn" id="btn-zoom-sel" disabled>◎ Zoom To</button>
+  <div class="tb-sep"></div>
+  <button class="btn" id="btn-measure" disabled>📏 Measure</button>
+  <button class="btn" id="btn-lasso"   disabled>⬡ Lasso</button>
+  <button class="btn amber" id="btn-clear-lasso" style="display:none">↩ Clear Lasso</button>
+  <div class="tb-right">
+    <div id="status-pill" class="status-pill">READY</div>
+    <button class="btn grn" id="btn-export" style="display:none">⬇ Export</button>
+    <button class="btn red" id="btn-clear"  style="display:none">✕ Clear</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main" id="main">
+
+  <!-- Drop overlay -->
+  <div id="drop-overlay">
+    <div class="drop-box">
+      <div class="drop-icon">📂</div>
+      <div class="drop-title">Drop file here</div>
+      <div class="drop-sub">CSV · TSV · XLSX · XLS</div>
+    </div>
+  </div>
+
+  <!-- Side panel -->
+  <div class="side-panel" id="side-panel">
+    <div class="panel-tabs">
+      <div class="ptab active" data-tab="records">RECORDS</div>
+      <div class="ptab"        data-tab="style">STYLE</div>
+      <div class="ptab"        data-tab="stats">STATS</div>
+      <div class="ptab"        data-tab="failed" id="tab-failed" style="display:none">FAILED<span class="fail-badge" id="fail-badge">0</span></div>
+    </div>
+
+    <!-- Records -->
+    <div class="tab-pane active" id="pane-records">
+      <div class="pane-head">
+        <span class="pane-title">RECORDS</span>
+        <span class="pane-count" id="pane-count">0 features</span>
+      </div>
+      <div class="search-wrap">
+        <input type="text" id="search-input" placeholder="Search all fields…">
+      </div>
+      <div class="record-list" id="record-list"></div>
+    </div>
+
+    <!-- Style -->
+    <div class="tab-pane" id="pane-style">
+      <div class="style-sec">
+        <div class="style-lbl">Colour points by field</div>
+        <select class="style-sel" id="color-sel">
+          <option value="">— Default (uniform) —</option>
+        </select>
+      </div>
+      <div class="style-sec">
+        <div class="style-lbl">Label points by field</div>
+        <select class="style-sel" id="label-sel">
+          <option value="">— No labels —</option>
+        </select>
+      </div>
+      <div class="legend-wrap" id="legend-wrap">
+        <div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Choose a field above to colour points</div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="tab-pane" id="pane-stats">
+      <div class="stats-wrap" id="stats-wrap">
+        <div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Load data to see statistics</div>
+      </div>
+    </div>
+
+    <!-- Failed geocodes -->
+    <div class="tab-pane" id="pane-failed">
+      <div class="failed-head">
+        <span class="pane-title" style="color:var(--danger)">✗ FAILED GEOCODES</span>
+        <span class="failed-summary" id="failed-summary">0 records</span>
+      </div>
+      <div class="failed-list" id="failed-list"></div>
+      <div class="fail-export-bar">
+        <button class="btn red" id="btn-export-failed" style="width:100%;justify-content:center">⬇ Export Failed Records as CSV</button>
+      </div>
+    </div>
+  </div><!-- /side-panel -->
+
+  <div class="panel-toggle" id="panel-toggle">◀</div>
+
+  <div id="map"></div>
+
+  <div id="coord-bar">Move cursor over map</div>
+
+  <canvas id="lasso-canvas"></canvas>
+
+  <div id="empty-state">
+    <div class="es-icon">🗺️</div>
+    <div class="es-title">No data loaded</div>
+    <div class="es-sub">Import a spreadsheet with Lat/Long or Address columns</div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- GEOCODE MODAL -->
+<div class="modal-backdrop" id="geo-modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title">📍 GEOCODE ADDRESSES</span>
+      <button class="modal-x" id="geo-cancel-x">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="geo-desc" id="geo-desc">No lat/long columns found. Map your address fields below then geocode.</p>
+      <div class="geo-row"><label>Street / Address</label><select class="geo-sel" id="gs-addr"></select></div>
+      <div class="geo-row"><label>Suburb / City</label>   <select class="geo-sel" id="gs-city"></select></div>
+      <div class="geo-row"><label>State / Region</label>  <select class="geo-sel" id="gs-state"></select></div>
+      <div class="geo-row"><label>Postcode / ZIP</label>  <select class="geo-sel" id="gs-post"></select></div>
+      <div class="geo-row"><label>Country</label>         <select class="geo-sel" id="gs-country"></select></div>
+      <div class="geo-note">⚠ Uses <strong>Nominatim (OpenStreetMap)</strong> — free, no API key needed.<br>Rate limited to 1 request/second. Select at least one field.</div>
+      <div class="geo-actions">
+        <button class="btn" id="geo-cancel-btn">Cancel</button>
+        <button class="btn primary" id="geo-start-btn">▶ Start Geocoding</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PROGRESS MODAL -->
+<div class="modal-backdrop" id="prog-modal">
+  <div class="modal-box">
+    <div class="modal-body" style="padding:20px 22px;">
+      <div class="prog-title">GEOCODING IN PROGRESS</div>
+      <div class="prog-sub">Nominatim · OpenStreetMap · 1 req/sec</div>
+      <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+      <div class="prog-stats">
+        <span id="prog-count">0 / 0</span>
+        <span id="prog-pct">0%</span>
+        <span id="prog-ok"   style="color:var(--accent)">✓ 0 found</span>
+        <span id="prog-fail" style="color:var(--danger)">✗ 0 failed</span>
+      </div>
+      <div class="prog-cur" id="prog-cur">Starting…</div>
+      <button class="prog-cancel" id="prog-cancel-btn">✕ Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div class="modal-backdrop" id="exp-modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title">⬇ EXPORT DATA</span>
+      <button class="modal-x" id="exp-x">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="exp-scope" id="exp-scope"></div>
+      <div class="exp-opt" id="exp-shp-all">
+        <span class="exp-icon">🗂️</span>
+        <div><div class="exp-title">Shapefile ZIP — All records</div>
+        <div class="exp-sub">.shp · .shx · .dbf · .prj · .cpg (WGS84)</div></div>
+      </div>
+      <div class="exp-opt" id="exp-csv-all">
+        <span class="exp-icon">📄</span>
+        <div><div class="exp-title">CSV — All records</div>
+        <div class="exp-sub">All columns including coordinates</div></div>
+      </div>
+      <div class="exp-opt" id="exp-shp-filt" style="display:none">
+        <span class="exp-icon">🗂️</span>
+        <div><div class="exp-title">Shapefile ZIP — <span class="filt-lbl"></span></div>
+        <div class="exp-sub">.shp · .shx · .dbf · .prj · .cpg (WGS84)</div></div>
+      </div>
+      <div class="exp-opt" id="exp-csv-filt" style="display:none">
+        <span class="exp-icon">📄</span>
+        <div><div class="exp-title">CSV — <span class="filt-lbl"></span></div>
+        <div class="exp-sub">All columns including coordinates</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EXTERNAL LIBS (loaded before inline script) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// Everything runs after DOM + libs are ready
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', function() {
+
+try {
+
+// ── CONSTANTS ──────────────────────────────────────────────
+const COORD_KEYS = new Set(['lat','latitude','long','longitude','lon','lng']);
+const PALETTE = ['#00d4aa','#f7c948','#f85149','#58a6ff','#bc8cff',
+                 '#ff9f43','#26de81','#fd79a8','#a29bfe','#e17055'];
+
+// ── STATE ──────────────────────────────────────────────────
+let allFeatures   = [];   // {idx, lat, lon, data, geocoded?, geocodeFailed?, geocodeQuery?}
+let markers       = [];   // parallel array, null for failed geocodes
+let markerGroup, labelGroup;
+let activeIdx     = null;
+let lassoSel      = new Set();
+let panelOpen     = true;
+let colorField    = '';
+let colorMap      = {};
+let labelField    = '';
+let measuring     = false;
+let mPoints       = [];
+let mMarkers      = [];
+let mLine         = null;
+let mTip          = null;
+let mTotal        = 0;
+let lassoMode     = false;
+let lassoDrawing  = false;
+let lassoPath     = [];
+let geoCancelled  = false;
+let pendingRows   = [];
+
+// ── MAP ────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([-25.5, 134], 4);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+const baseLayers = {
+  'Dark':          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',   { attribution:'© CartoDB', maxZoom:19 }),
+  'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',              { attribution:'© OpenStreetMap contributors', maxZoom:19 }),
+  'Satellite':     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution:'© Esri', maxZoom:19 }),
+  'Topo':          L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',                { attribution:'© OpenTopoMap', maxZoom:17 })
+};
+baseLayers['Dark'].addTo(map);
+L.control.layers(baseLayers, null, { position: 'topright' }).addTo(map);
+L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
+
+markerGroup = L.layerGroup().addTo(map);
+labelGroup  = L.layerGroup().addTo(map);
+
+// ── COORD DISPLAY ──────────────────────────────────────────
+const coordBar = document.getElementById('coord-bar');
+map.on('mousemove', e => {
+  coordBar.textContent = e.latlng.lat.toFixed(6) + ',  ' + e.latlng.lng.toFixed(6);
+});
+map.on('mouseout', () => { coordBar.textContent = 'Move cursor over map'; });
+
+// ── LASSO CANVAS ───────────────────────────────────────────
+const lassoCanvas = document.getElementById('lasso-canvas');
+const lassoCtx    = lassoCanvas.getContext('2d');
+
+// ── DOM REFS ───────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const $$ = sel => document.querySelectorAll(sel);
+
+// ── HELPERS ────────────────────────────────────────────────
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+function setStatus(msg, type=''){
+  const el = $('status-pill');
+  el.textContent = msg;
+  el.className   = 'status-pill' + (type ? ' '+type : '');
+}
+function showError(ctx, err){
+  console.error(ctx, err);
+  setStatus('ERROR','err');
+  alert('Error in ' + ctx + ':\n\n' + ((err && err.message) || String(err)) +
+        '\n\nOpen browser console (F12) for the full stack trace.');
+}
+function triggerDl(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a   = Object.assign(document.createElement('a'), { href:url, download:name });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ── PANEL TABS ─────────────────────────────────────────────
+$$('.ptab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    $$('.ptab').forEach(t => t.classList.remove('active'));
+    $$('.tab-pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    $('pane-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── PANEL TOGGLE ───────────────────────────────────────────
+$('panel-toggle').addEventListener('click', () => {
+  panelOpen = !panelOpen;
+  $('side-panel').classList.toggle('collapsed', !panelOpen);
+  const btn = $('panel-toggle');
+  btn.textContent = panelOpen ? '◀' : '▶';
+  btn.classList.toggle('off', !panelOpen);
+  btn.style.left = panelOpen ? 'var(--panel-w)' : '0';
+  setTimeout(() => map.invalidateSize(), 260);
+});
+
+// ── DRAG & DROP ────────────────────────────────────────────
+const mainEl = $('main');
+const dropEl = $('drop-overlay');
+mainEl.addEventListener('dragover',  e => { e.preventDefault(); dropEl.classList.add('on'); });
+mainEl.addEventListener('dragleave', e => { if (!mainEl.contains(e.relatedTarget)) dropEl.classList.remove('on'); });
+mainEl.addEventListener('drop', e => {
+  e.preventDefault(); dropEl.classList.remove('on');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+
+// ── FILE INPUT ─────────────────────────────────────────────
+$('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) processFile(file);
+  e.target.value = '';
+});
+
+function processFile(file) {
+  setStatus('LOADING…', 'warn');
+  const ext = file.name.split('.').pop().toLowerCase();
+  try {
+    if (ext === 'csv' || ext === 'tsv') {
+      const reader = new FileReader();
+      reader.onerror = () => showError('FileReader', reader.error);
+      reader.onload  = ev => {
+        try {
+          const result = Papa.parse(ev.target.result, { header:true, skipEmptyLines:true, dynamicTyping:true });
+          if (result.errors && result.errors.length) console.warn('CSV parse warnings:', result.errors);
+          loadData(result.data, file.name);
+        } catch(e) { showError('CSV parse', e); }
+      };
+      reader.readAsText(file);
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onerror = () => showError('FileReader', reader.error);
+      reader.onload  = ev => {
+        try {
+          const wb = XLSX.read(ev.target.result, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          loadData(XLSX.utils.sheet_to_json(ws, { defval: '' }), file.name);
+        } catch(e) { showError('XLSX parse', e); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      setStatus('UNSUPPORTED FORMAT', 'err');
+      alert('Unsupported file type: .' + ext + '\n\nSupported formats: .csv  .tsv  .xlsx  .xls');
+    }
+  } catch(e) { showError('processFile', e); }
+}
+
+// ── COORD DETECTION ────────────────────────────────────────
+function findCoords(keys) {
+  const lk = keys.map(k => k.toLowerCase().trim().replace(/[\s_\-\.]/g,''));
+  const latTests = ['latitude','lat'];
+  const lonTests = ['longitude','long','lon','lng'];
+  let latKey = null, lonKey = null;
+  for (const p of latTests) { const i = lk.findIndex(k => k === p || k.startsWith(p)); if (i !== -1) { latKey = keys[i]; break; } }
+  for (const p of lonTests) { const i = lk.findIndex(k => k === p || k.startsWith(p)); if (i !== -1) { lonKey = keys[i]; break; } }
+  return { latKey, lonKey };
+}
+
+// ── LOAD DATA ──────────────────────────────────────────────
+function loadData(rows, filename) {
+  try {
+    if (!rows || !rows.length) {
+      setStatus('EMPTY FILE', 'err');
+      alert('The file is empty or could not be parsed. Check that it has column headers in the first row.');
+      return;
+    }
+
+    const keys = Object.keys(rows[0]);
+    if (!keys.length) {
+      setStatus('NO COLUMNS', 'err');
+      alert('No column headers found in the file.');
+      return;
+    }
+
+    const { latKey, lonKey } = findCoords(keys);
+
+    if (latKey && lonKey) {
+      // ── Has coordinates ──────────────────────────────────
+      clearAll(false);
+      let loaded = 0, skipped = 0;
+      rows.forEach((row, i) => {
+        const lat = parseFloat(row[latKey]);
+        const lon = parseFloat(row[lonKey]);
+        if (isNaN(lat) || isNaN(lon)) { skipped++; return; }
+        allFeatures.push({ idx: i, lat, lon, data: row });
+        loaded++;
+      });
+      if (!loaded) {
+        setStatus('NO VALID COORDS', 'err');
+        alert('Lat/Long columns found ("' + latKey + '", "' + lonKey + '") but no rows had valid numeric values.\n\nCheck the data contains numbers, not text.');
+        return;
+      }
+      finalise(loaded, skipped);
+
+    } else {
+      // ── No coordinates — offer geocoding ─────────────────
+      const norm = k => k.toLowerCase().replace(/[\s_\-\.]/g, '');
+      const nk   = keys.map(norm);
+
+      function guess(frags) {
+        for (const f of frags) {
+          const i = nk.findIndex(k => k === f || k.includes(f));
+          if (i !== -1) return keys[i];
+        }
+        return null;
+      }
+
+      const gAddr    = guess(['address','addr','street','streetnumber','location','place','fulladdr','propaddr','siteaddr','site','property','premise']);
+      const gCity    = guess(['suburb','city','town','locality','lga','district','municipality','village','area']);
+      const gState   = guess(['state','province','region','territory']);
+      const gPost    = guess(['postcode','postalcode','zipcode','zip','pcode','pc','postcd']);
+      const gCountry = guess(['country','nation','cntry']);
+
+      // Build option HTML for selects
+      const optNone = '<option value="">— None —</option>';
+      const optAll  = keys.map(k => '<option value="' + esc(k) + '">' + esc(k) + '</option>').join('');
+
+      ['gs-addr','gs-city','gs-state','gs-post','gs-country'].forEach(id => {
+        $(id).innerHTML = optNone + optAll;
+      });
+
+      function presel(id, key) {
+        if (!key) return;
+        const sel = $(id);
+        for (const o of sel.options) { if (o.value === key) { o.selected = true; break; } }
+      }
+      presel('gs-addr',    gAddr);
+      presel('gs-city',    gCity);
+      presel('gs-state',   gState);
+      presel('gs-post',    gPost);
+      presel('gs-country', gCountry);
+
+      const detected = [gAddr, gCity, gState, gPost, gCountry].filter(Boolean);
+      const descEl   = $('geo-desc');
+      if (detected.length) {
+        descEl.innerHTML = 'No lat/long columns detected. Possible address fields found: <strong>' +
+          detected.map(esc).join(', ') + '</strong>. Confirm the mapping below, then geocode.';
+      } else {
+        descEl.innerHTML = 'No lat/long or recognised address columns found. All <strong>' +
+          keys.length + ' columns</strong> are listed — manually select which contain address data.';
+      }
+
+      pendingRows = rows;
+      $('geo-modal').classList.add('on');
+      setStatus('NO COORDS — SELECT ADDRESS FIELDS TO GEOCODE', 'warn');
+    }
+
+  } catch(e) { showError('loadData', e); }
+}
+
+// ── FINALISE LOAD ──────────────────────────────────────────
+function finalise(loaded, skipped) {
+  try {
+    populateStyleDropdowns();
+    renderMarkers();
+    renderList(allFeatures);
+    buildStats();
+
+    $('empty-state').style.display   = 'none';
+    $('btn-export').style.display    = '';
+    $('btn-clear').style.display     = '';
+    $('btn-extent').disabled         = false;
+    $('btn-measure').disabled        = false;
+    $('btn-lasso').disabled          = false;
+    $('pane-count').textContent      = loaded + ' features';
+    setStatus(loaded + ' FEATURES LOADED' + (skipped ? ' · ' + skipped + ' SKIPPED' : ''));
+
+    const lls = allFeatures.filter(f => f.lat !== null).map(f => [f.lat, f.lon]);
+    if (lls.length) {
+      const bounds = L.latLngBounds(lls);
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: true });
+    }
+  } catch(e) { showError('finalise', e); }
+}
+
+function populateStyleDropdowns() {
+  const keys = Object.keys(allFeatures[0].data).filter(k => !COORD_KEYS.has(k.toLowerCase()));
+  ['color-sel','label-sel'].forEach(id => {
+    const sel = $(id);
+    while (sel.options.length > 1) sel.remove(1);
+    keys.forEach(k => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = k;
+      sel.appendChild(o);
+    });
+  });
+}
+
+// ── MARKERS ────────────────────────────────────────────────
+function fColor(f) {
+  if (!colorField) return '#00d4aa';
+  return colorMap[String(f.data[colorField] ?? '')] || '#8b949e';
+}
+
+function makeIcon(f, isActive, isLasso) {
+  const col = isActive ? '#f7c948' : (isLasso ? '#ff9f43' : fColor(f));
+  const sz  = isActive ? 16 : 12;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:'+sz+'px;height:'+sz+'px;background:'+col+';border-radius:50%;border:2px solid '+(isActive?'#fff':'rgba(0,0,0,.4)')+';box-shadow:0 0 '+(isActive?12:6)+'px '+col+'"></div>',
+    iconSize: [sz, sz], iconAnchor: [sz/2, sz/2]
+  });
+}
+
+function renderMarkers() {
+  markerGroup.clearLayers(); markers = [];
+  allFeatures.forEach((f, i) => {
+    if (f.lat === null || f.lat === undefined) { markers.push(null); return; }
+    const m = L.marker([f.lat, f.lon], { icon: makeIcon(f, false, false) });
+    m.on('click', () => { if (!lassoMode) selectFeature(i); });
+    markerGroup.addLayer(m);
+    markers.push(m);
+  });
+}
+
+function refreshIcon(i) {
+  if (!markers[i]) return;
+  markers[i].setIcon(makeIcon(allFeatures[i], i === activeIdx, lassoSel.has(i)));
+}
+
+// ── COLOUR BY ──────────────────────────────────────────────
+$('color-sel').addEventListener('change', function() {
+  colorField = this.value;
+  colorMap   = {};
+  const wrap = $('legend-wrap');
+  if (colorField) {
+    const vals = [...new Set(allFeatures.map(f => String(f.data[colorField] ?? '')))].sort();
+    vals.forEach((v, i) => colorMap[v] = PALETTE[i % PALETTE.length]);
+    wrap.innerHTML = '<div class="style-lbl" style="margin-bottom:8px">LEGEND — ' + esc(colorField) + '</div>' +
+      vals.map(v => '<div class="leg-item"><div class="leg-dot" style="background:' + colorMap[v] + '"></div><span class="leg-val">' + esc(v || '(blank)') + '</span></div>').join('');
+  } else {
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Choose a field above to colour points</div>';
+  }
+  allFeatures.forEach((_, i) => refreshIcon(i));
+});
+
+// ── LABELS ─────────────────────────────────────────────────
+$('label-sel').addEventListener('change', function() {
+  labelField = this.value;
+  labelGroup.clearLayers();
+  if (!labelField) return;
+  allFeatures.forEach(f => {
+    if (f.lat === null) return;
+    const val = String(f.data[labelField] ?? '');
+    if (!val) return;
+    L.tooltip({ permanent: true, direction: 'top', offset: [0, -10], className: 'm-tip', opacity: .9 })
+     .setLatLng([f.lat, f.lon]).setContent(esc(val)).addTo(labelGroup);
+  });
+});
+
+// ── FAILED GEOCODES TAB ────────────────────────────────────
+function buildFailedTab() {
+  const failed = allFeatures.filter(f => f.geocodeFailed === true);
+  const tab    = $('tab-failed');
+  const badge  = $('fail-badge');
+  const sumEl  = $('failed-summary');
+
+  if (!failed.length) {
+    tab.style.display = 'none';
+    return;
+  }
+
+  // Show the tab with count badge
+  tab.style.display = '';
+  badge.textContent = failed.length;
+  sumEl.textContent = failed.length + ' record' + (failed.length > 1 ? 's' : '') + ' could not be geocoded';
+
+  const allKeys  = Object.keys(failed[0].data);
+  const attrKeys = allKeys.filter(k => !COORD_KEYS.has(k.toLowerCase()));
+  const titleKey = attrKeys[0] || allKeys[0];
+
+  $('failed-list').innerHTML = failed.map(f => {
+    const attrs = attrKeys.map(k => {
+      const raw = f.data[k];
+      const val = (raw === null || raw === undefined || raw === '') ? '' : String(raw);
+      return '<div class="attr-row"><div class="attr-k">' + esc(k) + '</div>' +
+             '<div class="attr-v' + (val === '' ? ' nil' : '') + '">' + (val === '' ? '—' : esc(val)) + '</div></div>';
+    }).join('');
+
+    return '<div class="fail-item">' +
+      '<div class="fail-item-head">' +
+        '<span class="fail-num">#' + (f.idx + 1) + '</span>' +
+        '<span class="fail-title">' + esc(String(f.data[titleKey] ?? 'Record ' + (f.idx + 1))) + '</span>' +
+      '</div>' +
+      '<div class="fail-query-label">Query sent to Nominatim</div>' +
+      '<div class="fail-query">' + esc(f.geocodeQuery || '(empty)') + '</div>' +
+      '<div class="fail-attrs">' + attrs + '</div>' +
+      '</div>';
+  }).join('');
+
+  // Auto-switch to failed tab so user sees results immediately
+  $$('.ptab').forEach(t => t.classList.remove('active'));
+  $$('.tab-pane').forEach(p => p.classList.remove('active'));
+  $('tab-failed').classList.add('active');
+  $('pane-failed').classList.add('active');
+}
+
+$('btn-export-failed').addEventListener('click', () => {
+  const failed = allFeatures.filter(f => f.geocodeFailed === true);
+  if (!failed.length) { alert('No failed records to export.'); return; }
+
+  const keys = Object.keys(failed[0].data);
+  // Add a column showing the query that was attempted
+  const headerKeys = [...keys, '_geocode_query_attempted'];
+  const rows = [
+    headerKeys.join(','),
+    ...failed.map(f => {
+      const dataVals = keys.map(k => {
+        const v = (f.data[k] === null || f.data[k] === undefined) ? '' : String(f.data[k]);
+        return (v.includes(',') || v.includes('"') || v.includes('\n'))
+          ? '"' + v.replace(/"/g, '""') + '"' : v;
+      });
+      const query = f.geocodeQuery || '';
+      dataVals.push(query.includes(',') ? '"' + query.replace(/"/g, '""') + '"' : query);
+      return dataVals.join(',');
+    })
+  ];
+
+  triggerDl(
+    new Blob([rows.join('\n')], { type: 'text/csv' }),
+    'geocode_failed_' + failed.length + 'records.csv'
+  );
+  setStatus('EXPORTED ' + failed.length + ' FAILED RECORDS', 'warn');
+});
+
+// ── STATS ──────────────────────────────────────────────────
+function buildStats() {
+  const wrap = $('stats-wrap');
+  if (!allFeatures.length) { wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">No data</div>'; return; }
+  const keys = Object.keys(allFeatures[0].data).filter(k => !COORD_KEYS.has(k.toLowerCase()));
+  wrap.innerHTML = keys.map(k => {
+    const vals   = allFeatures.map(f => f.data[k]);
+    const strs   = vals.map(v => (v === null || v === undefined) ? '' : String(v));
+    const nums   = vals.map(v => parseFloat(v)).filter(n => !isNaN(n));
+    const filled = strs.filter(s => s !== '').length;
+    const uniq   = [...new Set(strs.filter(s => s !== ''))].sort();
+    const isNum  = nums.length > 0 && nums.length === filled;
+    return '<div class="stat-card">' +
+      '<div class="stat-field">' + esc(k) + '</div>' +
+      '<div class="stat-grid">' +
+      '<div class="stat-kv"><span class="stat-k">Total</span><span class="stat-v">' + vals.length + '</span></div>' +
+      '<div class="stat-kv"><span class="stat-k">Filled</span><span class="stat-v">' + filled + '</span></div>' +
+      '<div class="stat-kv"><span class="stat-k">Unique</span><span class="stat-v">' + uniq.length + '</span></div>' +
+      '<div class="stat-kv"><span class="stat-k">Null</span><span class="stat-v">' + (vals.length - filled) + '</span></div>' +
+      (isNum ? '<div class="stat-kv"><span class="stat-k">Min</span><span class="stat-v">' + Math.min(...nums).toLocaleString() + '</span></div>' +
+               '<div class="stat-kv"><span class="stat-k">Max</span><span class="stat-v">' + Math.max(...nums).toLocaleString() + '</span></div>' +
+               '<div class="stat-kv"><span class="stat-k">Sum</span><span class="stat-v">' + nums.reduce((a,b)=>a+b,0).toLocaleString() + '</span></div>' +
+               '<div class="stat-kv"><span class="stat-k">Mean</span><span class="stat-v">' + (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2) + '</span></div>' : '') +
+      '</div>' +
+      '<div class="stat-uniq"><div class="stat-uniq-title">Unique values</div><div class="stat-chips">' +
+      uniq.slice(0,14).map(v => '<span class="chip">' + esc(v) + '</span>').join('') +
+      (uniq.length > 14 ? '<span class="chip more">+' + (uniq.length-14) + ' more</span>' : '') +
+      '</div></div></div>';
+  }).join('');
+}
+
+// ── SELECT FEATURE ─────────────────────────────────────────
+function selectFeature(i) {
+  const f = allFeatures[i];
+  if (!f || f.lat === null) return;
+  if (activeIdx !== null) refreshIcon(activeIdx);
+  activeIdx = i; refreshIcon(i);
+  $$('.rec-item').forEach(el => el.classList.remove('active'));
+  const li = document.querySelector('.rec-item[data-i="' + i + '"]');
+  if (li) { li.classList.add('active'); li.scrollIntoView({ block: 'nearest' }); }
+  const rows = Object.keys(f.data).map(k =>
+    '<div class="pop-row"><div class="pop-k">' + esc(k) + '</div><div class="pop-v">' + esc(String(f.data[k] ?? '')) + '</div></div>'
+  ).join('');
+  L.popup({ maxWidth: 310, closeButton: true })
+   .setLatLng([f.lat, f.lon])
+   .setContent('<div class="pop-head">📍 FEATURE ' + (i+1) + ' OF ' + allFeatures.length + '</div><div class="pop-body">' + rows + '</div>')
+   .openOn(map);
+  map.panTo([f.lat, f.lon], { animate: true, duration: .4 });
+  $('btn-zoom-sel').disabled = false;
+}
+
+// ── RENDER LIST ────────────────────────────────────────────
+function renderList(features) {
+  const list = $('record-list');
+  if (!features.length) {
+    list.innerHTML = '<div style="padding:18px;color:var(--muted);font-size:12px;text-align:center">No matches</div>';
+    return;
+  }
+  const allKeys  = Object.keys(features[0].data);
+  const attrKeys = allKeys.filter(k => !COORD_KEYS.has(k.toLowerCase()));
+  const titleKey = attrKeys[0] || allKeys[0];
+
+  list.innerHTML = features.map(f => {
+    const iA = f.idx === activeIdx, iL = lassoSel.has(f.idx);
+    const iF = f.geocodeFailed === true;
+    const coordStr = (f.lat !== null && f.lat !== undefined)
+      ? f.lat.toFixed(5) + ', ' + f.lon.toFixed(5) : '—';
+    const badge = iF
+      ? '<span class="geo-badge fail">✗ NOT FOUND</span>'
+      : (f.geocoded ? '<span class="geo-badge ok">📍 GEOCODED</span>' : '');
+    const attrs = attrKeys.map(k => {
+      const raw = f.data[k];
+      const val = (raw === null || raw === undefined || raw === '') ? '' : String(raw);
+      return '<div class="attr-row"><div class="attr-k">' + esc(k) + '</div>' +
+             '<div class="attr-v' + (val === '' ? ' nil' : '') + '">' + (val === '' ? '—' : esc(val)) + '</div></div>';
+    }).join('');
+    return '<div class="rec-item' + (iA?' active':'') + (iL?' lasso-hi':'') + (iF?' geo-fail':'') +
+      '" data-i="' + f.idx + '">' +
+      '<div class="rec-head">' +
+        '<span class="rec-num' + (iL?' lasso':'') + '">#' + (f.idx+1) + '</span>' +
+        '<span class="rec-title">' + esc(String(f.data[titleKey] ?? 'Feature '+(f.idx+1))) + '</span>' +
+        badge +
+        '<span class="rec-coords">' + coordStr + '</span>' +
+      '</div>' +
+      '<div class="rec-attrs">' + attrs + '</div>' +
+      '</div>';
+  }).join('');
+
+  // Re-attach click listeners
+  list.querySelectorAll('.rec-item:not(.geo-fail)').forEach(el => {
+    el.addEventListener('click', () => selectFeature(parseInt(el.dataset.i)));
+  });
+}
+
+$('search-input').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  const shown = q
+    ? allFeatures.filter(f => Object.values(f.data).some(v => String(v).toLowerCase().includes(q)))
+    : allFeatures;
+  renderList(shown);
+  $('pane-count').textContent = shown.length === allFeatures.length
+    ? allFeatures.length + ' features'
+    : shown.length + ' of ' + allFeatures.length;
+});
+
+// ── NAVIGATION ─────────────────────────────────────────────
+$('btn-extent').addEventListener('click', () => {
+  const lls = allFeatures.filter(f => f.lat !== null).map(f => [f.lat, f.lon]);
+  if (!lls.length) return;
+  const b = L.latLngBounds(lls);
+  if (b.isValid()) map.fitBounds(b, { padding: [48, 48], maxZoom: 17, animate: true });
+});
+
+$('btn-zoom-sel').addEventListener('click', () => {
+  if (activeIdx === null) return;
+  const f = allFeatures[activeIdx];
+  if (f && f.lat !== null) map.setView([f.lat, f.lon], 15, { animate: true });
+});
+
+// ── MEASURE ────────────────────────────────────────────────
+$('btn-measure').addEventListener('click', toggleMeasure);
+
+function toggleMeasure() {
+  measuring = !measuring;
+  const btn = $('btn-measure');
+  if (measuring) {
+    if (lassoMode) toggleLasso();
+    btn.classList.add('tool-active');
+    map.getContainer().style.cursor = 'crosshair';
+    setStatus('MEASURE — Click points · Double-click to finish', 'warn');
+    mPoints = []; mTotal = 0;
+    if (mLine) { map.removeLayer(mLine); mLine = null; }
+    if (mTip)  { map.removeLayer(mTip);  mTip  = null; }
+    mMarkers.forEach(m => map.removeLayer(m)); mMarkers = [];
+  } else {
+    btn.classList.remove('tool-active');
+    map.getContainer().style.cursor = '';
+    if (allFeatures.length) setStatus(allFeatures.length + ' FEATURES LOADED');
+    else setStatus('READY');
+  }
+}
+
+map.on('click', e => {
+  if (lassoMode || !measuring) return;
+  mPoints.push(e.latlng);
+  const dot = L.circleMarker(e.latlng, { radius:4, color:'#f7c948', fillColor:'#f7c948', fillOpacity:1, weight:2 }).addTo(map);
+  mMarkers.push(dot);
+  if (mPoints.length > 1) {
+    mTotal += mPoints[mPoints.length-2].distanceTo(e.latlng);
+    if (mLine) map.removeLayer(mLine);
+    mLine = L.polyline(mPoints, { color:'#f7c948', weight:2, dashArray:'6,4' }).addTo(map);
+    if (mTip) map.removeLayer(mTip);
+    mTip = L.tooltip({ permanent:true, direction:'top', className:'m-tip' })
+      .setLatLng(e.latlng).setContent(fmtDist(mTotal)).addTo(map);
+  }
+});
+
+map.on('dblclick', () => {
+  if (!measuring) return;
+  const total = mTotal; toggleMeasure();
+  if (mPoints.length > 1) setStatus('Distance: ' + fmtDist(total));
+});
+
+function fmtDist(m) { return m >= 1000 ? (m/1000).toFixed(2)+' km' : Math.round(m)+' m'; }
+
+// ── LASSO ──────────────────────────────────────────────────
+$('btn-lasso').addEventListener('click', toggleLasso);
+$('btn-clear-lasso').addEventListener('click', clearLasso);
+
+function syncCanvas() {
+  const r = $('map').getBoundingClientRect();
+  lassoCanvas.style.left   = r.left + 'px';
+  lassoCanvas.style.top    = r.top  + 'px';
+  lassoCanvas.width        = r.width;
+  lassoCanvas.height       = r.height;
+}
+
+function toggleLasso() {
+  lassoMode = !lassoMode;
+  const btn = $('btn-lasso');
+  if (lassoMode) {
+    if (measuring) toggleMeasure();
+    btn.classList.add('lasso-active');
+    syncCanvas();
+    lassoCanvas.style.display         = 'block';
+    lassoCanvas.style.pointerEvents   = 'auto';
+    map.dragging.disable();
+    setStatus('LASSO — Click and drag to select points', 'warn');
+  } else {
+    btn.classList.remove('lasso-active');
+    lassoCanvas.style.display       = 'none';
+    lassoCanvas.style.pointerEvents = 'none';
+    lassoCtx.clearRect(0, 0, lassoCanvas.width, lassoCanvas.height);
+    map.dragging.enable();
+    if (!lassoSel.size && allFeatures.length) setStatus(allFeatures.length + ' FEATURES LOADED');
+  }
+}
+
+lassoCanvas.addEventListener('mousedown', e => {
+  if (!lassoMode) return;
+  lassoDrawing = true; lassoPath = [];
+  const r = lassoCanvas.getBoundingClientRect();
+  lassoPath.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+});
+
+lassoCanvas.addEventListener('mousemove', e => {
+  if (!lassoDrawing) return;
+  const r = lassoCanvas.getBoundingClientRect();
+  lassoPath.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+  lassoCtx.clearRect(0, 0, lassoCanvas.width, lassoCanvas.height);
+  lassoCtx.beginPath();
+  lassoCtx.strokeStyle = 'rgba(247,201,72,.9)';
+  lassoCtx.fillStyle   = 'rgba(247,201,72,.07)';
+  lassoCtx.lineWidth   = 2;
+  lassoCtx.setLineDash([5, 4]);
+  lassoPath.forEach((p, i) => i === 0 ? lassoCtx.moveTo(p.x, p.y) : lassoCtx.lineTo(p.x, p.y));
+  lassoCtx.closePath(); lassoCtx.stroke(); lassoCtx.fill();
+});
+
+lassoCanvas.addEventListener('mouseup', () => {
+  if (!lassoDrawing) return;
+  lassoDrawing = false;
+  lassoCtx.clearRect(0, 0, lassoCanvas.width, lassoCanvas.height);
+  lassoSel.clear();
+  allFeatures.forEach((f, i) => {
+    if (f.lat === null) return;
+    const pt = map.latLngToContainerPoint([f.lat, f.lon]);
+    if (ptInPoly(pt.x, pt.y, lassoPath)) lassoSel.add(i);
+  });
+  allFeatures.forEach((_, i) => refreshIcon(i));
+  renderList(allFeatures);
+  if (lassoSel.size) {
+    setStatus('LASSO: ' + lassoSel.size + ' point' + (lassoSel.size > 1 ? 's' : '') + ' selected', 'warn');
+    $('btn-clear-lasso').style.display = '';
+    const first = [...lassoSel].sort((a,b) => a-b)[0];
+    const el = document.querySelector('.rec-item[data-i="' + first + '"]');
+    if (el) el.scrollIntoView({ block: 'start' });
+  }
+  toggleLasso();
+});
+
+function ptInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length-1; i < poly.length; j = i++) {
+    const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+    if (((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function clearLasso() {
+  lassoSel.clear();
+  allFeatures.forEach((_, i) => refreshIcon(i));
+  renderList(allFeatures);
+  $('btn-clear-lasso').style.display = 'none';
+  $('pane-count').textContent = allFeatures.length + ' features';
+  if (allFeatures.length) setStatus(allFeatures.length + ' FEATURES LOADED');
+}
+
+window.addEventListener('resize', () => { if (lassoMode) syncCanvas(); });
+
+// ── CLEAR ALL ──────────────────────────────────────────────
+$('btn-clear').addEventListener('click', () => clearAll(true));
+
+function clearAll(resetView) {
+  try {
+    markerGroup.clearLayers(); labelGroup.clearLayers();
+    markers = []; allFeatures = []; activeIdx = null;
+    lassoSel.clear(); colorMap = {}; colorField = ''; labelField = '';
+    if (mLine) { map.removeLayer(mLine); mLine = null; }
+    if (mTip)  { map.removeLayer(mTip);  mTip  = null; }
+    mMarkers.forEach(m => map.removeLayer(m)); mMarkers = []; mPoints = [];
+    if (measuring) { measuring = false; $('btn-measure').classList.remove('tool-active'); map.getContainer().style.cursor = ''; }
+    if (lassoMode) { lassoMode = false; $('btn-lasso').classList.remove('lasso-active'); lassoCanvas.style.display='none'; lassoCanvas.style.pointerEvents='none'; map.dragging.enable(); }
+    map.closePopup();
+    $('record-list').innerHTML = '';
+    $('pane-count').textContent = '0 features';
+    $('search-input').value = '';
+    $('empty-state').style.display = '';
+    $('btn-export').style.display = 'none';
+    $('btn-clear').style.display  = 'none';
+    $('btn-clear-lasso').style.display = 'none';
+    $('btn-extent').disabled   = true;
+    $('btn-zoom-sel').disabled = true;
+    $('btn-measure').disabled  = true;
+    $('btn-lasso').disabled    = true;
+    $('legend-wrap').innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Choose a field above to colour points</div>';
+    $('stats-wrap').innerHTML  = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Load data to see statistics</div>';
+    $('failed-list').innerHTML = '';
+    $('failed-summary').textContent = '0 records';
+    $('tab-failed').style.display = 'none';
+    $('fail-badge').textContent = '0';
+    setStatus('READY');
+    if (resetView) map.setView([-25.5, 134], 4);
+  } catch(e) { showError('clearAll', e); }
+}
+
+// ── GEOCODE MODAL ──────────────────────────────────────────
+$('geo-cancel-x').addEventListener('click',   () => { $('geo-modal').classList.remove('on'); setStatus('READY'); });
+$('geo-cancel-btn').addEventListener('click', () => { $('geo-modal').classList.remove('on'); setStatus('READY'); });
+$('geo-start-btn').addEventListener('click',  startGeocoding);
+
+async function startGeocoding() {
+  const addrF    = $('gs-addr').value;
+  const cityF    = $('gs-city').value;
+  const stateF   = $('gs-state').value;
+  const postF    = $('gs-post').value;
+  const countryF = $('gs-country').value;
+
+  const fields = [addrF, cityF, stateF, postF, countryF].filter(v => v !== '');
+  if (!fields.length) {
+    alert('Please select at least one field to use for geocoding.');
+    return;
+  }
+
+  $('geo-modal').classList.remove('on');
+  clearAll(false);
+
+  const rows  = pendingRows;
+  const total = rows.length;
+  let ok = 0, fail = 0;
+  geoCancelled = false;
+
+  const fill  = $('prog-fill');
+  const pCnt  = $('prog-count');
+  const pPct  = $('prog-pct');
+  const pOk   = $('prog-ok');
+  const pFail = $('prog-fail');
+  const pCur  = $('prog-cur');
+
+  fill.style.width   = '0%';
+  pCnt.textContent   = '0 / ' + total;
+  pPct.textContent   = '0%';
+  pOk.textContent    = '✓ 0 found';
+  pFail.textContent  = '✗ 0 failed';
+  pCur.textContent   = 'Starting…';
+  $('prog-modal').classList.add('on');
+
+  function updProg(i, addr, state) {
+    const pct = Math.round((i / total) * 100);
+    fill.style.width  = pct + '%';
+    pCnt.textContent  = i + ' / ' + total;
+    pPct.textContent  = pct + '%';
+    pOk.textContent   = '✓ ' + ok + ' found';
+    pFail.textContent = '✗ ' + fail + ' failed';
+    pCur.textContent  = (state === 'ok' ? '✓ ' : state === 'fail' ? '✗ ' : '⏳ ') + addr;
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    if (geoCancelled) break;
+
+    const parts = [];
+    if (addrF    && rows[i][addrF]    != null) { const v = String(rows[i][addrF]).trim();    if (v) parts.push(v); }
+    if (postF    && rows[i][postF]    != null) { const v = String(rows[i][postF]).trim();    if (v) parts.push(v); }
+    if (cityF    && rows[i][cityF]    != null) { const v = String(rows[i][cityF]).trim();    if (v) parts.push(v); }
+    if (stateF   && rows[i][stateF]   != null) { const v = String(rows[i][stateF]).trim();   if (v) parts.push(v); }
+    if (countryF && rows[i][countryF] != null) { const v = String(rows[i][countryF]).trim(); if (v) parts.push(v); }
+
+    // Deduplicate adjacent identical parts
+    const query = parts.filter((v, j, a) => v !== a[j-1]).join(', ');
+
+    if (!query) {
+      fail++;
+      allFeatures.push({ idx:i, lat:null, lon:null, data:rows[i], geocoded:false, geocodeFailed:true, geocodeQuery:'(empty row)' });
+      updProg(i+1, '(empty row)', 'fail');
+      continue;
+    }
+
+    updProg(i, query, 'pending');
+
+    let lat = null, lon = null;
+    try {
+      const url  = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(query) + '&format=json&limit=1';
+      const resp = await fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GIS-Field-Viewer/2.0' } });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.length > 0) {
+          lat = parseFloat(data[0].lat);
+          lon = parseFloat(data[0].lon);
+        }
+      }
+    } catch(e) { console.warn('Nominatim error for "' + query + '":', e); }
+
+    if (lat !== null && !isNaN(lat) && lon !== null && !isNaN(lon)) {
+      ok++;
+      allFeatures.push({ idx:i, lat, lon, data: Object.assign({}, rows[i], { Latitude:lat, Longitude:lon }),
+        geocoded:true, geocodeQuery:query });
+      updProg(i+1, query, 'ok');
+    } else {
+      fail++;
+      allFeatures.push({ idx:i, lat:null, lon:null, data:rows[i], geocoded:false, geocodeFailed:true, geocodeQuery:query });
+      updProg(i+1, query, 'fail');
+    }
+
+    await sleep(1100); // Nominatim policy: 1 req/sec
+  }
+
+  $('prog-modal').classList.remove('on');
+
+  const mappable = allFeatures.filter(f => f.lat !== null);
+  if (!mappable.length) {
+    setStatus('GEOCODING FAILED — 0 LOCATED', 'err');
+    alert('No addresses could be geocoded.\n\nCheck:\n• Are the correct fields selected?\n• Do the address values contain real place names?\n• Is there internet access?');
+    clearAll(false);
+    return;
+  }
+
+  // Sort back to original order
+  allFeatures.sort((a, b) => a.idx - b.idx);
+
+  populateStyleDropdowns();
+  renderMarkers();
+  renderList(allFeatures);
+  buildStats();
+  buildFailedTab();
+
+  $('empty-state').style.display = 'none';
+  $('btn-export').style.display  = '';
+  $('btn-clear').style.display   = '';
+  $('btn-extent').disabled       = false;
+  $('btn-measure').disabled      = false;
+  $('btn-lasso').disabled        = false;
+  $('pane-count').textContent    = mappable.length + ' features';
+
+  const msg = geoCancelled
+    ? 'CANCELLED · ' + ok + ' located · ' + fail + ' failed'
+    : 'GEOCODING COMPLETE · ' + ok + ' located' + (fail ? ' · ' + fail + ' failed' : '');
+  setStatus(msg, fail > 0 ? 'warn' : '');
+
+  const bounds = L.latLngBounds(mappable.map(f => [f.lat, f.lon]));
+  if (bounds.isValid()) map.fitBounds(bounds, { padding:[48,48], maxZoom:17, animate:true });
+
+  if (fail > 0) {
+    setTimeout(() => alert(
+      'Geocoding complete.\n\n✓ ' + ok + ' addresses located\n✗ ' + fail + ' could not be found\n\n' +
+      'Failed records appear in the panel with a ✗ NOT FOUND badge.\nThey are excluded from map display and exports.'
+    ), 200);
+  }
+}
+
+$('prog-cancel-btn').addEventListener('click', () => {
+  geoCancelled = true;
+  $('prog-cur').textContent = 'Cancelling after current request…';
+});
+
+// ── EXPORT MODAL ───────────────────────────────────────────
+$('btn-export').addEventListener('click', openExport);
+$('exp-x').addEventListener('click', () => $('exp-modal').classList.remove('on'));
+$('exp-modal').addEventListener('click', e => { if (e.target === $('exp-modal')) $('exp-modal').classList.remove('on'); });
+
+function resolveExportFeatures(scope) {
+  const q = $('search-input').value.trim().toLowerCase();
+  if (scope === 'all') return allFeatures.filter(f => f.lat !== null);
+  if (lassoSel.size)  return allFeatures.filter(f => lassoSel.has(f.idx) && f.lat !== null);
+  if (q)              return allFeatures.filter(f => f.lat !== null && Object.values(f.data).some(v => String(v).toLowerCase().includes(q)));
+  return allFeatures.filter(f => f.lat !== null);
+}
+
+function openExport() {
+  const q      = $('search-input').value.trim();
+  const hasL   = lassoSel.size > 0;
+  const hasQ   = q.length > 0;
+  const hasFilt = hasL || hasQ;
+
+  let label = '', scopeMsg = '';
+  if (hasL) {
+    label    = lassoSel.size + ' lasso-selected records';
+    scopeMsg = lassoSel.size + ' lasso-selected  ·  ' + allFeatures.length + ' total loaded';
+  } else if (hasQ) {
+    const n  = resolveExportFeatures('filtered').length;
+    label    = n + ' search-filtered records';
+    scopeMsg = n + ' match search "' + q + '"  ·  ' + allFeatures.length + ' total';
+  } else {
+    scopeMsg = allFeatures.filter(f=>f.lat!==null).length + ' mappable features loaded';
+  }
+
+  $('exp-scope').textContent = scopeMsg;
+  ['exp-shp-filt','exp-csv-filt'].forEach(id => {
+    $(id).style.display = hasFilt ? '' : 'none';
+    $(id).querySelectorAll('.filt-lbl').forEach(el => el.textContent = label);
+  });
+  $('exp-modal').classList.add('on');
+}
+
+$('exp-shp-all').addEventListener('click',  () => doExport('shp', 'all'));
+$('exp-csv-all').addEventListener('click',  () => doExport('csv', 'all'));
+$('exp-shp-filt').addEventListener('click', () => doExport('shp', 'filtered'));
+$('exp-csv-filt').addEventListener('click', () => doExport('csv', 'filtered'));
+
+async function doExport(fmt, scope) {
+  $('exp-modal').classList.remove('on');
+  const features = resolveExportFeatures(scope);
+  if (!features.length) { alert('No features to export.'); return; }
+  if (fmt === 'csv') exportCSV(features);
+  else await exportSHP(features);
+}
+
+function exportCSV(features) {
+  setStatus('BUILDING CSV…', 'warn');
+  const keys = Object.keys(features[0].data);
+  const rows = [keys.join(','), ...features.map(f =>
+    keys.map(k => {
+      const v = (f.data[k] === null || f.data[k] === undefined) ? '' : String(f.data[k]);
+      return (v.includes(',') || v.includes('"') || v.includes('\n')) ? '"' + v.replace(/"/g,'""') + '"' : v;
+    }).join(',')
+  )];
+  triggerDl(new Blob([rows.join('\n')], { type: 'text/csv' }), 'export_' + features.length + 'pts.csv');
+  setStatus('CSV EXPORTED · ' + features.length + ' ROWS');
+}
+
+async function exportSHP(features) {
+  setStatus('BUILDING SHP…', 'warn');
+  try {
+    const coordKs  = new Set(['lat','latitude','long','longitude','lon','lng']);
+    const attrKeys = Object.keys(features[0].data).filter(k => !coordKs.has(k.toLowerCase()));
+    const n        = features.length;
+    const rcl      = 20; // record content length for Point
+    const shpLen   = 100 + n*(8+rcl);
+    const shxLen   = 100 + n*8;
+    const shpB = new ArrayBuffer(shpLen), shxB = new ArrayBuffer(shxLen);
+    const shpV = new DataView(shpB),      shxV = new DataView(shxB);
+
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    features.forEach(f => {
+      if(f.lon<minX)minX=f.lon; if(f.lon>maxX)maxX=f.lon;
+      if(f.lat<minY)minY=f.lat; if(f.lat>maxY)maxY=f.lat;
+    });
+
+    function wHdr(dv, words) {
+      dv.setInt32(0,9994,false); for(let i=4;i<24;i+=4)dv.setInt32(i,0,false);
+      dv.setInt32(24,words,false); dv.setInt32(28,1000,true); dv.setInt32(32,1,true);
+      dv.setFloat64(36,minX,true); dv.setFloat64(44,minY,true);
+      dv.setFloat64(52,maxX,true); dv.setFloat64(60,maxY,true);
+      for(let o=68;o<100;o+=8) dv.setFloat64(o,0,true);
+    }
+    wHdr(shpV,shpLen/2); wHdr(shxV,shxLen/2);
+
+    let off = 100;
+    features.forEach((f,i) => {
+      const sx = 100+i*8;
+      shxV.setInt32(sx,     off/2,  false); shxV.setInt32(sx+4, rcl/2, false);
+      shpV.setInt32(off,    i+1,    false); shpV.setInt32(off+4, rcl/2, false);
+      shpV.setInt32(off+8,  1,      true);
+      shpV.setFloat64(off+12, f.lon, true);
+      shpV.setFloat64(off+20, f.lat, true);
+      off += 8+rcl;
+    });
+
+    // DBF
+    const fnames  = attrKeys.map(k => (k.replace(/[^A-Za-z0-9_]/g,'_').substring(0,10).toUpperCase() || 'FIELD'));
+    const fwidths = attrKeys.map((k,fi) => {
+      let w = fnames[fi].length;
+      features.forEach(f => { const s=(f.data[k]===null||f.data[k]===undefined)?'':String(f.data[k]); if(s.length>w)w=s.length; });
+      return Math.min(w||1, 254);
+    });
+    const recLen = 1 + fwidths.reduce((a,b)=>a+b, 0);
+    const hdrLen = 32 + fnames.length*32 + 1;
+    const dbfB   = new ArrayBuffer(hdrLen + n*recLen);
+    const dbfV   = new DataView(dbfB);
+    const dbfBy  = new Uint8Array(dbfB);
+    const now    = new Date();
+    dbfV.setUint8(0,3); dbfV.setUint8(1,now.getFullYear()-1900); dbfV.setUint8(2,now.getMonth()+1); dbfV.setUint8(3,now.getDate());
+    dbfV.setInt32(4,n,true); dbfV.setInt16(8,hdrLen,true); dbfV.setInt16(10,recLen,true);
+    fnames.forEach((nm,fi) => {
+      const o = 32+fi*32;
+      for(let c=0;c<11;c++) dbfBy[o+c] = c<nm.length ? nm.charCodeAt(c) : 0;
+      dbfBy[o+11]=0x43; dbfV.setUint8(o+16,fwidths[fi]); dbfV.setUint8(o+17,0);
+    });
+    dbfBy[32+fnames.length*32] = 0x0D;
+    const enc = new TextEncoder();
+    features.forEach((f,ri) => {
+      let o = hdrLen + ri*recLen; dbfBy[o++] = 0x20;
+      attrKeys.forEach((k,fi) => {
+        const str = (f.data[k]===null||f.data[k]===undefined)?'':String(f.data[k]);
+        const w   = fwidths[fi];
+        const pad = str.length>=w ? str.substring(0,w) : str+' '.repeat(w-str.length);
+        const enc2 = enc.encode(pad);
+        for(let c=0;c<w;c++) dbfBy[o+c] = c<enc2.length ? enc2[c] : 0x20;
+        o += w;
+      });
+    });
+
+    const prj = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+    const zip = new JSZip();
+    zip.file('export.shp', shpB); zip.file('export.shx', shxB);
+    zip.file('export.dbf', dbfB); zip.file('export.prj', prj);
+    zip.file('export.cpg', 'UTF-8');
+    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+    triggerDl(blob, 'export_' + n + 'pts.zip');
+    setStatus('SHP EXPORTED · ' + n + ' POINTS');
+  } catch(e) { showError('exportSHP', e); }
+}
+
+// ── GLOBAL ERROR HANDLERS ──────────────────────────────────
+window.addEventListener('error', ev => {
+  console.error('Global error:', ev);
+  setStatus('JS ERROR', 'err');
+  alert('Unexpected JavaScript error:\n' + (ev.message||'unknown') +
+        '\nLine: ' + (ev.lineno||'?') + '\n\nOpen console (F12) for details.');
+});
+window.addEventListener('unhandledrejection', ev => {
+  console.error('Unhandled rejection:', ev.reason);
+  setStatus('ASYNC ERROR', 'err');
+  alert('Unexpected async error:\n' + ((ev.reason&&ev.reason.message)||String(ev.reason)) +
+        '\n\nOpen console (F12) for details.');
+});
+
+// ── DONE ───────────────────────────────────────────────────
+} catch(e) {
+  alert('Critical startup error:\n\n' + ((e&&e.message)||String(e)) +
+        '\n\nThe app may not function. Open browser console (F12) for details.');
+  console.error('Startup error:', e);
+}
+
+}); // end DOMContentLoaded
+</script>
+</body>
+</html>
